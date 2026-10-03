@@ -282,6 +282,12 @@ button {
 
 .swatch.square { border-radius: 2px; }
 
+.legend-note {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
 .about summary {
   cursor: pointer;
   margin: 10px 0 4px;

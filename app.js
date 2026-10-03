@@ -8,8 +8,12 @@
   const GRID_PRECISION = 3; // geohash precision 3 is roughly 156 km x 156 km at the equator
   const FIELDS = [
     'id', 'decimalLatitude', 'decimalLongitude', 'eventDate', 'date_year',
-    'basisOfRecord', 'scientificName', 'dataset_id', 'institutionCode',
+    'basisOfRecord', 'samplingProtocol', 'scientificName', 'dataset_id', 'institutionCode',
   ];
+  // basisOfRecord alone misleads: some eDNA samples are filed as machine observations, and some
+  // satellite-tag datasets as human observations. The sampling method, when given, decides first.
+  const DNA_METHOD = /\bdna\b|edna|metabarcod|grab sampler|sediment/i;
+  const TAG_METHOD = /\btag(s|ged|ging)?\b|telemetry|acoustic|satellite|receiver|biologging|archival/i;
   const LIMITS = [1000, 5000, 10000, 20000];
   const VIEWS = ['points', 'density'];
   const MIN_YEAR = 1700;
@@ -112,7 +116,7 @@
   const nf = new Intl.NumberFormat('en');
 
   const state = {
-    view: 'points', loading: false, plotted: 0, total: 0, skipped: 0, cells: 0,
+    view: 'points', period: DEFAULT_PERIOD, loading: false, plotted: 0, total: 0, skipped: 0, cells: 0,
     species: DEFAULT_SPECIES, records: [], grid: null, error: null,
   };
 
@@ -232,9 +236,11 @@
     return node;
   }
 
-  function categoryOf(basis) {
-    const b = String(basis || '').toLowerCase().replace(/[^a-z]/g, '');
-    if (b === 'machineobservation') return CATEGORIES[0];
+  function categoryOf(rec) {
+    const method = typeof rec.samplingProtocol === 'string' ? rec.samplingProtocol : '';
+    const b = String(rec.basisOfRecord || '').toLowerCase().replace(/[^a-z]/g, '');
+    if (DNA_METHOD.test(method) || b === 'materialsample') return CATEGORIES[2];
+    if (TAG_METHOD.test(method) || b === 'machineobservation') return CATEGORIES[0];
     if (b === 'humanobservation') return CATEGORIES[1];
     return CATEGORIES[2];
   }
@@ -419,9 +425,10 @@
       if (value instanceof Node) dd.append(value); else dd.textContent = value;
       dl.append(dd);
     };
-    const cat = categoryOf(rec.basisOfRecord);
+    const cat = categoryOf(rec);
     row('Date', recordDate(rec));
     row('Type', rec.basisOfRecord ? `${cat.label} (${rec.basisOfRecord})` : cat.label);
+    if (typeof rec.samplingProtocol === 'string' && rec.samplingProtocol) row('Method', rec.samplingProtocol.slice(0, 80));
     row('Position', `${rec.decimalLatitude.toFixed(3)}, ${rec.decimalLongitude.toFixed(3)}`);
     if (rec.institutionCode) row('Institution', String(rec.institutionCode).slice(0, 80));
     if (typeof rec.dataset_id === 'string' && UUID_RE.test(rec.dataset_id)) {
@@ -437,7 +444,7 @@
 
   function addPoints(records) {
     for (const rec of records) {
-      const cat = categoryOf(rec.basisOfRecord);
+      const cat = categoryOf(rec);
       const m = L.circleMarker([rec.decimalLatitude, rec.decimalLongitude], {
         radius: 4,
         weight: 1,
@@ -475,12 +482,13 @@
   function renderLegend() {
     ui.legend.replaceChildren();
     const table = el('table');
+    let legendNote = null;
     if (state.view === 'points') {
       if (!state.plotted) return;
       table.append(el('caption', null, 'Record type'));
       const counts = new Map(CATEGORIES.map((c) => [c.key, 0]));
       for (const rec of state.records) {
-        const key = categoryOf(rec.basisOfRecord).key;
+        const key = categoryOf(rec).key;
         counts.set(key, counts.get(key) + 1);
       }
       for (const cat of CATEGORIES) {
@@ -491,6 +499,18 @@
         label.append(sw, document.createTextNode(cat.label));
         tr.append(label, el('td', 'num', nf.format(counts.get(cat.key))));
         table.append(tr);
+      }
+      if (!counts.get('machine')) {
+        let note;
+        if (state.period !== 'all') {
+          note = 'No tag data in this period. Tag data often reach OBIS years after collection, '
+            + 'so choose All years to see older tag data.';
+        } else if (state.plotted + state.skipped >= state.total) {
+          note = `OBIS holds no tag data for ${speciesLabel(state.species).toLowerCase()}s.`;
+        } else {
+          note = 'None of the plotted records come from tags.';
+        }
+        legendNote = el('p', 'legend-note', note);
       }
     } else {
       if (!state.cells) return;
@@ -517,13 +537,14 @@
       });
     }
     ui.legend.append(table);
+    if (legendNote) ui.legend.append(legendNote);
   }
 
   dataLayer.on('mouseover', (e) => {
     const layer = e.layer;
     let text;
     if (layer.rec) {
-      text = `${categoryOf(layer.rec.basisOfRecord).label} · ${recordDate(layer.rec)}`;
+      text = `${categoryOf(layer.rec).label} · ${recordDate(layer.rec)}`;
     } else if (layer.cellCount !== undefined) {
       text = `${nf.format(layer.cellCount)} record${layer.cellCount === 1 ? '' : 's'} in this cell`;
     }
@@ -569,7 +590,7 @@
       ui.downloadRow.hidden = true;
       return;
     }
-    const cols = ['id', 'scientificName', 'decimalLatitude', 'decimalLongitude', 'eventDate', 'basisOfRecord', 'institutionCode', 'dataset_id'];
+    const cols = ['id', 'scientificName', 'decimalLatitude', 'decimalLongitude', 'eventDate', 'basisOfRecord', 'samplingProtocol', 'institutionCode', 'dataset_id'];
     const lines = [cols.join(',')];
     for (const rec of state.records) lines.push(cols.map((c) => csvCell(rec[c])).join(','));
     downloadUrl = URL.createObjectURL(new Blob([`${lines.join('\n')}\n`], { type: 'text/csv' }));
@@ -645,7 +666,7 @@
     ui.limitRow.hidden = q.view !== 'points';
     clearError();
     Object.assign(state, {
-      view: q.view, species: q.species, loading: true, plotted: 0, total: 0, skipped: 0, cells: 0, records: [], grid: null,
+      view: q.view, species: q.species, period: q.period, loading: true, plotted: 0, total: 0, skipped: 0, cells: 0, records: [], grid: null,
     });
     dataLayer.clearLayers();
     renderLegend();

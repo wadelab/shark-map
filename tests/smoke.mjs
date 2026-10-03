@@ -61,6 +61,11 @@ function mockRecord(i, species) {
   };
   if (i === 1) rec.scientificName = '<img src=x onerror="window.__xss=1">';
   if (i === 3) rec.eventDate = '<img src=x onerror="window.__xss=2">';
+  // Real OBIS mislabels: eDNA filed as a machine observation, satellite tags filed as human ones.
+  if (i === 4) Object.assign(rec, { basisOfRecord: 'MachineObservation', samplingProtocol: 'eDNA expeditions citizen science sampling' });
+  if (i === 6) Object.assign(rec, { basisOfRecord: 'HumanObservation', samplingProtocol: 'satellite telemetry' });
+  // Shortfin mako mock records are all sightings, to test the "no tag data" note.
+  if (species === 'Isurus oxyrinchus') Object.assign(rec, { basisOfRecord: 'HumanObservation', samplingProtocol: undefined });
   if (i % 997 === 5) rec.decimalLatitude = 123; // invalid, must be skipped
   if (i % 1499 === 7) rec.decimalLongitude = null;
   return rec;
@@ -318,6 +323,20 @@ test('basemap: OpenStreetMap without a key, CARTO with one', async (b, base) => 
   }
 });
 
+test('legend explains when no plotted record comes from a tag', async (b, base) => {
+  const withTags = await newPage(b, base);
+  assert.equal(await withTags.page.locator('.legend-note').count(), 0);
+  await withTags.ctx.close();
+
+  const { page, ctx } = await newPage(b, base, { hash: 'species=Isurus+oxyrinchus' });
+  assert.equal(await text(page, '.legend-note'), 'No tag data in this period. Tag data often reach OBIS years '
+    + 'after collection, so choose All years to see older tag data.');
+  await page.selectOption('#period', 'all');
+  await page.waitForFunction(() => /period=all/.test(location.hash) && !window.sharkMap.state.loading);
+  assert.equal(await text(page, '.legend-note'), 'OBIS holds no tag data for shortfin makos.');
+  await ctx.close();
+});
+
 test('time range presets set the dates; custom years wait for Update map', async (b, base) => {
   const { page, log, ctx } = await newPage(b, base, { now: NOW });
   const settle = (fragment) => page.waitForFunction(
@@ -410,6 +429,10 @@ test('popups and hover tooltips render record text safely; links only for valid 
   assert.ok(html1.includes('&lt;img'), html1);
   assert.equal(await page.locator('.leaflet-popup-content img').count(), 0);
   assert.ok(html1.includes('href="https://obis.org/dataset/78bf6b7f-555c-4bf7-8d81-a766c5bc736e"'));
+  // The sampling method outranks basisOfRecord when it says eDNA or tags.
+  assert.match(await open('rec-000004'), /Specimen or other record \(MachineObservation\)/);
+  assert.match(await open('rec-000004'), /eDNA expeditions/);
+  assert.match(await open('rec-000006'), /Tag or receiver detection \(HumanObservation\)/);
   const html0 = await open('rec-000000');
   assert.ok(!html0.includes('href='), 'no link for an invalid dataset id');
   assert.equal(await page.evaluate(() => window.__xss), undefined);
@@ -432,7 +455,7 @@ test('CSV download escapes formulas and quotes', async (b, base) => {
   assert.equal(await page.locator('#download-row').isVisible(), true);
   const csv = await page.evaluate(async () => (await fetch(document.getElementById('download').href)).text());
   const lines = csv.trim().split('\n');
-  assert.equal(lines[0], 'id,scientificName,decimalLatitude,decimalLongitude,eventDate,basisOfRecord,institutionCode,dataset_id');
+  assert.equal(lines[0], 'id,scientificName,decimalLatitude,decimalLongitude,eventDate,basisOfRecord,samplingProtocol,institutionCode,dataset_id');
   assert.ok(csv.includes(`"'=HYPERLINK(""http://evil"")"`), 'formula cell neutralised');
   assert.match(lines[1], /^"rec-000000","Carcharodon carcharias",-?\d/);
   await ctx.close();

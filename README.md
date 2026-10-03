@@ -28,6 +28,13 @@ otherwise it keeps your view.
 
 ## Caveats about the data
 
+- Record types come from each record's sampling method when OBIS has one, and otherwise from
+  its basis of record. The method wins because some eDNA samples are filed as machine
+  observations and some satellite-tag datasets as human observations.
+- Tag data are scarce in recent periods. In October 2026 the newest white shark tag record in
+  OBIS dated from December 2022, and OBIS held no white shark tag data off Nova Scotia at all.
+  The legend says when none of the plotted records come from tags.
+
 - These are occurrence records, not live positions. Most are historical. Researchers who tag
   sharks often delay or coarsen positions before sharing them.
 - OBIS returns records in no particular order. When a species has more records than the
