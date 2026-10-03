@@ -32,7 +32,9 @@ function serve() {
 }
 
 // ---------- mock OBIS ----------
-const TOTALS = { 'Carcharodon carcharias': 12000, 'Rhincodon typus': 0 };
+const TOTALS = { 'Carcharodon carcharias': 12000, 'Rhincodon typus': 0, 'Sphyrna mokarran': 800 };
+// Great hammerhead mock records sit only in the tropics, far from the Nova Scotia home view.
+const TROPICAL = [[21, -157], [24, -110], [-28, 153.5]];
 const HOTSPOTS = [[-34.5, 19.5], [-35, 137], [36.5, -122.5], [41.5, -70], [37, 15], [-28, 153.5], [21, -157], [24, -110]];
 const BASIS = ['MachineObservation', 'MachineObservation', 'HumanObservation', 'HumanObservation', 'HumanObservation', 'PreservedSpecimen', 'Occurrence'];
 const DATASET = '78bf6b7f-555c-4bf7-8d81-a766c5bc736e';
@@ -42,9 +44,10 @@ function rand(seed) {
   return () => { x ^= x << 13; x >>>= 0; x ^= x >> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; };
 }
 
-function mockRecord(i) {
+function mockRecord(i, species) {
   const r = rand(i * 7919 + 13);
-  const [lat, lon] = HOTSPOTS[i % HOTSPOTS.length];
+  const spots = species === 'Sphyrna mokarran' ? TROPICAL : HOTSPOTS;
+  const [lat, lon] = spots[i % spots.length];
   const rec = {
     id: `rec-${String(i).padStart(6, '0')}`,
     decimalLatitude: +(lat + (r() - 0.5) * 8).toFixed(4),
@@ -70,7 +73,7 @@ function mockOccurrence(url) {
   const start = p.get('after') ? Number(p.get('after').slice(4)) + 1 : 0;
   const end = Math.min(total, start + size);
   const results = [];
-  for (let i = start; i < end; i += 1) results.push(mockRecord(i));
+  for (let i = start; i < end; i += 1) results.push(mockRecord(i, p.get('scientificname')));
   return { total, results };
 }
 
@@ -155,6 +158,15 @@ const state = (page) => page.evaluate(() => {
 });
 const text = (page, sel) => page.locator(sel).innerText();
 
+// Where Nova Scotia sits on screen, and the part of the map the panel leaves uncovered.
+const homeGeometry = (page) => page.evaluate(() => {
+  const { map, home } = window.sharkMap;
+  const pt = map.latLngToContainerPoint(home);
+  const m = map.getContainer().getBoundingClientRect();
+  const p = document.getElementById('panel').getBoundingClientRect();
+  return { x: pt.x, y: pt.y, w: m.width, h: m.height, panelRight: p.right, panelTop: p.top, zoom: map.getZoom() };
+});
+
 // ---------- tests ----------
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -184,6 +196,57 @@ test('default view plots a capped subset with skipped bad coordinates', async (b
   assert.match(page.url(), /#species=Carcharodon\+carcharias&view=points&limit=5000$/);
   assert.deepEqual(log.errors, []);
   await page.screenshot({ path: join(SHOTS, 'desktop-points.png') });
+  await ctx.close();
+});
+
+test('opens on Nova Scotia, centred in the uncovered part of the map', async (b, base) => {
+  const { page, ctx } = await newPage(b, base);
+  const g = await homeGeometry(page);
+  assert.equal(g.zoom, 6);
+  const midX = (g.panelRight + g.w) / 2;
+  assert.ok(Math.abs(g.x - midX) < 4, `x ${g.x} vs ${midX}`);
+  assert.ok(Math.abs(g.y - g.h / 2) < 4, `y ${g.y}`);
+  await ctx.close();
+});
+
+test('Canadian styling: bilingual title, red header, maple leaf icons', async (b, base) => {
+  const { page, ctx } = await newPage(b, base);
+  assert.equal(await page.title(), 'Shark Map · Carte des requins');
+  assert.equal(await page.getAttribute('.panel-head .fr', 'lang'), 'fr');
+  assert.equal(await text(page, '.panel-head .fr'), 'Carte des requins');
+  const head = await page.evaluate(() => getComputedStyle(document.querySelector('.panel-head')).backgroundColor);
+  assert.equal(head, 'rgb(213, 43, 30)');
+  assert.equal(await page.locator('.panel-head .brand svg path').count(), 1);
+  assert.equal(await page.locator('.home-control svg path').count(), 1);
+  const icon = await page.evaluate(async () => {
+    const res = await fetch(document.querySelector('link[rel="icon"]').href);
+    return { ok: res.ok, type: res.headers.get('content-type'), body: await res.text() };
+  });
+  assert.ok(icon.ok && icon.body.startsWith('<svg') && icon.body.includes('#d52b1e'), JSON.stringify(icon).slice(0, 120));
+  await ctx.close();
+});
+
+test('moves to the data only when none is in view, and the leaf button returns home', async (b, base) => {
+  const { page, ctx } = await newPage(b, base, { hash: 'species=Sphyrna+mokarran' });
+  const away = await homeGeometry(page);
+  assert.ok(away.zoom < 6, `zoom ${away.zoom}`);
+  const visible = await page.evaluate(() => {
+    const { map, state } = window.sharkMap;
+    const v = map.getBounds();
+    return state.records.some((r) => v.contains([r.decimalLatitude, r.decimalLongitude]));
+  });
+  assert.ok(visible, 'tropical records should be in view after the move');
+  await page.click('.home-control a');
+  const back = await homeGeometry(page);
+  assert.equal(back.zoom, 6);
+  assert.ok(Math.abs(back.x - (back.panelRight + back.w) / 2) < 4);
+  // White shark records near Nova Scotia are visible, so switching species keeps the view.
+  await page.selectOption('#species', 'Carcharodon carcharias');
+  await waitIdle(page);
+  await page.waitForFunction(() => window.sharkMap.state.species === 'Carcharodon carcharias' && !window.sharkMap.state.loading);
+  const kept = await homeGeometry(page);
+  assert.equal(kept.zoom, 6);
+  assert.ok(Math.abs(kept.x - back.x) < 1 && Math.abs(kept.y - back.y) < 1, 'view should not move');
   await ctx.close();
 });
 
@@ -317,9 +380,15 @@ test('phone layout and dark theme render', async (b, base) => {
   const attr = await phone.page.locator('.leaflet-control-attribution').boundingBox();
   const panel = await phone.page.locator('#panel').boundingBox();
   assert.ok(attr.y + attr.height <= panel.y, 'attribution hidden behind the panel');
-  const zoom = await phone.page.locator('.leaflet-control-zoom').boundingBox();
-  const overlap = !(zoom.x + zoom.width <= attr.x || attr.x + attr.width <= zoom.x || zoom.y + zoom.height <= attr.y || attr.y + attr.height <= zoom.y);
-  assert.ok(!overlap, 'attribution overlaps the zoom control');
+  const overlaps = (a, c) => !(a.x + a.width <= c.x || c.x + c.width <= a.x || a.y + a.height <= c.y || c.y + c.height <= a.y);
+  for (const sel of ['.leaflet-control-zoom', '.home-control']) {
+    const box2 = await phone.page.locator(sel).boundingBox();
+    assert.ok(!overlaps(box2, attr), `attribution overlaps ${sel}`);
+  }
+  const g = await homeGeometry(phone.page);
+  assert.equal(g.zoom, 5.5);
+  assert.ok(Math.abs(g.x - g.w / 2) < 4, `x ${g.x}`);
+  assert.ok(Math.abs(g.y - g.panelTop / 2) < 4, `y ${g.y} vs ${g.panelTop / 2}`);
   assert.equal(await phone.page.locator('#controls').isVisible(), false, 'filters start collapsed on phones');
   assert.equal(await phone.page.locator('#status').isVisible(), true);
   await phone.page.screenshot({ path: join(SHOTS, 'phone.png') });

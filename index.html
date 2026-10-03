@@ -6,8 +6,8 @@
   <meta name="app-version" content="__APP_VERSION__">
   <meta name="build-date" content="__BUILD_DATE__">
   <meta name="description" content="Recorded shark occurrences around the world, drawn live from the Ocean Biodiversity Information System (OBIS).">
-  <title>Shark Map</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M3 22c6-1 10-4 13-12 2 5 6 9 13 12-9 2-17 2-26 0z' fill='%232a78d6'/%3E%3C/svg%3E">
+  <title>Shark Map · Carte des requins</title>
+  <link rel="icon" href="maple-leaf.svg" type="image/svg+xml">
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -16,12 +16,17 @@
 
   <aside id="panel" aria-label="Map controls">
     <header class="panel-head">
-      <h1>Shark Map</h1>
+      <div class="brand">
+        <div>
+          <h1>Shark Map</h1>
+          <p class="fr" lang="fr">Carte des requins</p>
+        </div>
+      </div>
       <button id="panel-toggle" type="button" aria-expanded="true" aria-controls="controls">Hide filters</button>
     </header>
 
     <div id="panel-body">
-      <p class="lede collapsible">Where sharks have been recorded, from tags, receivers, surveys and museum collections. Records come live from <a href="https://obis.org" rel="noopener">OBIS</a>.</p>
+      <p class="lede collapsible">Where sharks have been recorded, from tags, receivers, surveys and museum collections. The map opens on Nova Scotia. Zoom out to see the rest of the world. Records come live from <a href="https://obis.org" rel="noopener">OBIS</a>.</p>
 
       <form id="controls" class="collapsible" autocomplete="off">
         <label for="species">Species</label>

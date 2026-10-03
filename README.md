@@ -1,4 +1,4 @@
-# Shark Map
+# Shark Map · Carte des requins
 
 A static web page that maps where sharks have been recorded around the world. The browser
 queries the [OBIS](https://obis.org) occurrence API directly, so there is no server and the
@@ -7,6 +7,10 @@ site runs on GitHub Pages.
 Live site: <https://wadelab.github.io/shark-map/>
 
 ## What it shows
+
+The map opens on Nova Scotia and its surrounding waters. The maple leaf button under the zoom
+controls returns there. If a search finds nothing in view, the map moves to the records, and
+otherwise it keeps your view.
 
 - **Individual records.** Up to 20,000 occurrence records for the chosen species, coloured by
   record type: tag or receiver detections, sightings and catches, and specimens or other
@@ -69,8 +73,18 @@ One-time setup: in the repository settings, open **Pages** and set **Source** to
 
 To cut a release, bump `VERSION`. Every build also appends the short commit SHA.
 
+## Look and feel
+
+The styling is Canadian: a flag-red header with a white maple leaf, a bilingual English and
+French title, and red buttons and links. It deliberately avoids Government of Canada branding,
+such as the Canada wordmark or the federal identity header, so it can't be mistaken for an
+official site. The data colours are unchanged, because they are chosen to stay distinguishable
+for colour-blind readers.
+
 ## Third-party pieces
 
+- Maple leaf outline from the flag of Canada, taken from
+  [flag-icons](https://github.com/lipis/flag-icons), MIT licence.
 - [Leaflet](https://leafletjs.com) 1.9.4, vendored in `vendor/leaflet/`, BSD-2-Clause.
 - Basemap tiles from [CARTO](https://carto.com/attributions), built on OpenStreetMap data.
   CARTO's free basemaps have usage terms. Check them if traffic grows, or change the tile URL

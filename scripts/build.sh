@@ -12,7 +12,7 @@ built="$(date -u +%Y-%m-%dT%H:%MZ)"
 
 rm -rf _site
 mkdir -p _site
-cp -r index.html app.js style.css vendor _site/
+cp -r index.html app.js style.css maple-leaf.svg vendor _site/
 sed -i.bak -e "s|__APP_VERSION__|${version}|" -e "s|__BUILD_DATE__|${built}|" _site/index.html
 rm _site/index.html.bak
 

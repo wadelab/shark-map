@@ -37,6 +37,17 @@
   ];
   const DEFAULT_SPECIES = 'Carcharodon carcharias';
 
+  // Home view: Nova Scotia and its surrounding waters.
+  const NOVA_SCOTIA = [45.0, -63.0];
+  const HOME_ZOOM = { wide: 6, narrow: 5.5 };
+
+  // Maple leaf outline from the flag of Canada, via the flag-icons package (MIT licence).
+  const MAPLE_LEAF_PATH = 'M201 232l-13.3 4.4 61.4 54c4.7 13.7-1.6 17.8-5.6 25l66.6-8.4-1.6 67 13.9-.3-3.1-66.6 66.7 8'
+    + 'c-4.1-8.7-7.8-13.3-4-27.2l61.3-51-10.7-4c-8.8-6.8 3.8-32.6 5.6-48.9 0 0-35.7 12.3-38 5.8l-9.2-17.5-32.6 35.8'
+    + 'c-3.5.9-5-.5-5.9-3.5l15-74.8-23.8 13.4q-3.2 1.3-5.2-2.2l-23-46-23.6 47.8q-2.8 2.5-5 .7L264 130.8l13.7 74.1'
+    + 'c-1.1 3-3.7 3.8-6.7 2.2l-31.2-35.3c-4 6.5-6.8 17.1-12.2 19.5s-23.5-4.5-35.6-7c4.2 14.8 17 39.6 9 47.7z';
+  const MAPLE_LEAF_VIEWBOX = '184 92 262 286';
+
   // Three categorical slots, validated all-pairs for colour-vision deficiency in both themes.
   const CATEGORIES = [
     { key: 'machine', label: 'Tag or receiver detection', light: '#2a78d6', dark: '#3987e5' },
@@ -80,12 +91,9 @@
     maxZoom: 10,
     zoomSnap: 0.5,
     renderer: L.canvas({ tolerance: 6, padding: 0.5 }),
-  }).setView([15, 0], narrow ? 1 : 2);
+  }).setView(NOVA_SCOTIA, narrow ? HOME_ZOOM.narrow : HOME_ZOOM.wide);
   // On phones the control panel is a bottom sheet, so keep the attribution clear of it.
-  if (narrow) {
-    map.zoomControl.setPosition('topright');
-    map.attributionControl.setPosition('topright');
-  }
+  if (narrow) map.zoomControl.setPosition('topright');
 
   let tiles = null;
   function setTiles() {
@@ -97,6 +105,80 @@
   setTiles();
 
   const dataLayer = L.featureGroup().addTo(map);
+
+  // The panel covers part of the map: the left edge on wide screens, the bottom on phones.
+  function panelInsets() {
+    const mapBox = map.getContainer().getBoundingClientRect();
+    const panelBox = ui.panel.getBoundingClientRect();
+    if (narrow) return { left: 0, bottom: Math.max(0, mapBox.bottom - panelBox.top) };
+    return { left: Math.max(0, panelBox.right - mapBox.left), bottom: 0 };
+  }
+
+  // Centre Nova Scotia in the part of the map the panel leaves uncovered.
+  function goHome() {
+    const { left, bottom } = panelInsets();
+    map.setView(NOVA_SCOTIA, narrow ? HOME_ZOOM.narrow : HOME_ZOOM.wide, { animate: false });
+    map.panBy([-left / 2, bottom / 2], { animate: false });
+  }
+
+  function uncoveredBounds() {
+    const size = map.getSize();
+    const { left, bottom } = panelInsets();
+    return L.latLngBounds(map.containerPointToLatLng([left, size.y - bottom]), map.containerPointToLatLng([size.x, 0]));
+  }
+
+  // Keep the reader's view, unless none of the new data would be visible in it.
+  function fitIfNothingVisible() {
+    const layers = dataLayer.getLayers();
+    if (!layers.length) return;
+    const view = uncoveredBounds();
+    const visible = layers.some((l) => (l.getLatLng ? view.contains(l.getLatLng()) : view.intersects(l.getBounds())));
+    if (visible) return;
+    const { left, bottom } = panelInsets();
+    map.fitBounds(dataLayer.getBounds(), {
+      paddingTopLeft: [left + 24, 24], paddingBottomRight: [24, bottom + 24], maxZoom: 5, animate: false,
+    });
+  }
+
+  // Until the reader moves the map, keep the home view centred as the panel changes height.
+  let viewTouched = false;
+  for (const type of ['pointerdown', 'wheel', 'keydown']) {
+    map.getContainer().addEventListener(type, () => { viewTouched = true; }, { passive: true });
+  }
+
+  function mapleLeafSvg(fill) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', MAPLE_LEAF_VIEWBOX);
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', MAPLE_LEAF_PATH);
+    path.setAttribute('fill', fill);
+    svg.append(path);
+    return svg;
+  }
+
+  const HomeControl = L.Control.extend({
+    options: { position: narrow ? 'topright' : 'topleft' },
+    onAdd() {
+      const bar = L.DomUtil.create('div', 'leaflet-bar home-control');
+      const a = L.DomUtil.create('a', '', bar);
+      a.href = '#';
+      a.title = 'Back to Nova Scotia';
+      a.setAttribute('role', 'button');
+      a.setAttribute('aria-label', 'Back to Nova Scotia');
+      a.append(mapleLeafSvg('currentColor'));
+      L.DomEvent.disableClickPropagation(bar);
+      L.DomEvent.on(a, 'click', (e) => { L.DomEvent.preventDefault(e); goHome(); });
+      return bar;
+    },
+  });
+  new HomeControl().addTo(map);
+  // On phones the control panel is a bottom sheet, so stack the attribution under the buttons, clear of it.
+  if (narrow) map.attributionControl.setPosition('topright');
+
+  document.querySelector('.panel-head .brand').prepend(mapleLeafSvg('currentColor'));
   const hoverTip = L.tooltip({ direction: 'top', offset: [0, -6], opacity: 1 });
 
   // ---------- Helpers ----------
@@ -459,7 +541,7 @@
   }
 
   let controller = null;
-  async function update({ fit } = {}) {
+  async function update() {
     if (controller) controller.abort();
     controller = new AbortController();
     const { signal } = controller;
@@ -482,10 +564,8 @@
       else await loadDensity(q, signal);
       renderLegend();
       updateDownload();
-      if (fit && dataLayer.getLayers().length) {
-        const b = dataLayer.getBounds();
-        if (b.isValid()) map.fitBounds(b, { padding: [24, 24], maxZoom: 5 });
-      }
+      if (!viewTouched) goHome();
+      fitIfNothingVisible();
     } catch (err) {
       if (signal.aborted || (err && err.name === 'AbortError')) return;
       const detail = err && err.message ? err.message : String(err);
@@ -510,13 +590,9 @@
   ui.from.max = String(MAX_YEAR);
   ui.to.max = String(MAX_YEAR);
 
-  let lastSpecies = null;
   ui.form.addEventListener('submit', (e) => {
     e.preventDefault();
-    const q = queryFromForm();
-    const fit = q.species !== lastSpecies;
-    lastSpecies = q.species;
-    update({ fit });
+    update();
   });
   ui.species.addEventListener('change', () => ui.form.requestSubmit());
   ui.form.querySelectorAll('input[name="view"]').forEach((r) => r.addEventListener('change', () => ui.form.requestSubmit()));
@@ -528,15 +604,14 @@
   }
   ui.toggle.addEventListener('click', () => setCollapsed(!ui.panel.classList.contains('collapsed')));
   setCollapsed(narrow);
+  goHome();
 
   darkQuery.addEventListener('change', () => { setTiles(); redraw(); });
 
   window.addEventListener('hashchange', () => {
     const q = queryFromHash();
     applyQueryToForm(q);
-    const fit = q.species !== lastSpecies;
-    lastSpecies = q.species;
-    update({ fit });
+    update();
   });
 
   const version = document.querySelector('meta[name="app-version"]').content;
@@ -544,10 +619,9 @@
   ui.version.textContent = version.startsWith('__') ? 'dev build' : version;
   if (!built.startsWith('__')) ui.version.title = `Built ${built}`;
 
-  window.sharkMap = { map, state };
+  window.sharkMap = { map, state, home: NOVA_SCOTIA };
 
   const initial = queryFromHash();
   applyQueryToForm(initial);
-  lastSpecies = initial.species;
-  update({ fit: false });
+  update();
 })();
