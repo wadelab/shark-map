@@ -276,6 +276,7 @@ test('basemap: OpenStreetMap without a key, CARTO with one', async (b, base) => 
   assert.equal(await osm.page.evaluate(() => window.sharkMap.basemap()), 'osm');
   assert.ok(osm.log.tiles.length > 0 && osm.log.tiles.every((u) => u.startsWith('https://tile.openstreetmap.org/')), osm.log.tiles[0]);
   assert.match(await attribution(osm.page), /OpenStreetMap contributors/);
+  assert.match(await attribution(osm.page), /Leaflet/);
   assert.doesNotMatch(await attribution(osm.page), /CARTO/);
   assert.equal(await hasOsmClass(osm.page), true);
   await osm.ctx.close();
@@ -429,9 +430,19 @@ test('phone layout and dark theme render', async (b, base) => {
   assert.ok(box.width <= 390 && box.x >= 0, JSON.stringify(box));
   const scrollW = await phone.page.evaluate(() => document.documentElement.scrollWidth);
   assert.ok(scrollW <= 390, `horizontal scroll ${scrollW}`);
-  const attr = await phone.page.locator('.leaflet-control-attribution').boundingBox();
-  const panel = await phone.page.locator('#panel').boundingBox();
-  assert.ok(attr.y + attr.height <= panel.y, 'attribution hidden behind the panel');
+  // The attribution is one line resting on top of the bottom sheet, clear of the map buttons.
+  const attrCheck = async (label) => {
+    const attr = await phone.page.locator('.leaflet-control-attribution').boundingBox();
+    const sheet = await phone.page.locator('#panel').boundingBox();
+    assert.ok(Math.abs(attr.y + attr.height - sheet.y) <= 1, `${label}: attribution bottom ${attr.y + attr.height} vs panel top ${sheet.y}`);
+    assert.ok(attr.height <= 20, `${label}: attribution wraps (${attr.height}px)`);
+    assert.ok(attr.x >= 0 && attr.x + attr.width <= 390, `${label}: attribution off screen`);
+    return attr;
+  };
+  const attr = await attrCheck('collapsed');
+  const attrText = await text(phone.page, '.leaflet-control-attribution');
+  assert.match(attrText, /OpenStreetMap contributors/);
+  assert.doesNotMatch(attrText, /Leaflet/);
   const overlaps = (a, c) => !(a.x + a.width <= c.x || c.x + c.width <= a.x || a.y + a.height <= c.y || c.y + c.height <= a.y);
   for (const sel of ['.leaflet-control-zoom', '.home-control']) {
     const box2 = await phone.page.locator(sel).boundingBox();
@@ -446,6 +457,8 @@ test('phone layout and dark theme render', async (b, base) => {
   await phone.page.screenshot({ path: join(SHOTS, 'phone.png') });
   await phone.page.click('#panel-toggle');
   assert.equal(await phone.page.locator('#controls').isVisible(), true);
+  await phone.page.waitForTimeout(100);
+  await attrCheck('expanded');
   assert.equal(await phone.page.getAttribute('#panel-toggle', 'aria-expanded'), 'true');
   await phone.page.screenshot({ path: join(SHOTS, 'phone-open.png') });
   await phone.ctx.close();

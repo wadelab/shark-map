@@ -200,8 +200,17 @@
     },
   });
   new HomeControl().addTo(map);
-  // On phones the control panel is a bottom sheet, so stack the attribution under the buttons, clear of it.
-  if (narrow) map.attributionControl.setPosition('topright');
+  // On phones the panel is a bottom sheet. Keep the attribution to one short line that rides just
+  // above it, out of the way of the map. Leaflet is credited in the panel's About section instead.
+  if (narrow) {
+    map.attributionControl.setPrefix(false);
+    const sheet = () => {
+      map.getContainer().style.setProperty('--sheet-offset', `${Math.round(panelInsets().bottom)}px`);
+    };
+    sheet();
+    if ('ResizeObserver' in window) new ResizeObserver(sheet).observe(ui.panel);
+    window.addEventListener('resize', sheet);
+  }
 
   document.querySelector('.panel-head .brand').prepend(mapleLeafSvg('currentColor'));
   const hoverTip = L.tooltip({ direction: 'top', offset: [0, -6], opacity: 1 });
