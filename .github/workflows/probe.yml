@@ -1,0 +1,12 @@
+name: OBIS tag-data probe (temporary)
+on:
+  push:
+    branches: ['probe/**']
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: python3 probe/probe.py
