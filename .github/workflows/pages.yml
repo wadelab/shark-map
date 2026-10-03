@@ -31,7 +31,7 @@ jobs:
         run: SITE_DIR=_site npm test
       - name: Keep screenshots
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: screenshots-mocked
           path: test-results/
@@ -63,7 +63,7 @@ jobs:
         run: npm run test:live
       - name: Keep screenshots
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: screenshots-live
           path: test-results/
