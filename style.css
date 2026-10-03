@@ -176,6 +176,8 @@ fieldset legend { padding: 0; }
 }
 
 .years legend { width: 100%; }
+.years { margin-top: 6px; }
+.years[hidden] { display: none; }
 
 .view label {
   display: flex;

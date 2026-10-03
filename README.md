@@ -17,8 +17,11 @@ otherwise it keeps your view.
   records. Click a dot for the date, position and source dataset.
 - **Density of all records.** Every matching record counted into geohash cells of about
   150 km, from the OBIS grid endpoint.
-- Filters for species and year range. The current view is kept in the URL, so links are
-  shareable.
+- Filters for species and time range. The time range starts at the last 12 months, with
+  presets for the last 5 years and all years, or a custom range of years. The current view is
+  kept in the URL, so links are shareable.
+- Records often reach OBIS months or years after collection, so recent periods can look
+  sparse. When a rolling period finds nothing, the page says so and suggests a longer range.
 - A CSV download of the plotted records.
 - A version tag in the panel footer, such as `v0.1.0+1a2b3c4`, naming the release and commit
   that built the page.

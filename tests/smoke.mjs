@@ -161,6 +161,8 @@ async function newPage(browser, base, opts = {}) {
       if (/basemaps\.cartocdn\.com|tile\.openstreetmap\.org/.test(res.url())) log.tiles.push(`${res.status()} ${new URL(res.url()).host}`);
     });
   }
+  // Fix "today" for tests that check rolling date ranges. Only Date is faked; timers run normally.
+  if (opts.now) await page.clock.setFixedTime(new Date(opts.now));
   await page.goto(`${base}/${opts.hash ? `#${opts.hash}` : ''}`);
   await waitIdle(page);
   return { page, ctx, log };
@@ -186,18 +188,19 @@ const homeGeometry = (page) => page.evaluate(() => {
 });
 
 // ---------- tests ----------
+const NOW = '2026-10-03T12:00:00Z';
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
 
 test('default view plots a capped subset with skipped bad coordinates', async (b, base) => {
-  const { page, log, ctx } = await newPage(b, base);
+  const { page, log, ctx } = await newPage(b, base, { now: NOW });
   const s = await state(page);
   assert.equal(s.view, 'points');
   assert.equal(s.total, 12000);
   assert.ok(s.skipped >= 2, `skipped ${s.skipped}`);
   assert.equal(s.plotted + s.skipped, 5000);
   const status = await text(page, '#status');
-  assert.match(status, /^Showing 4,99\d of 12,000 White shark records, an arbitrary subset\. \d+ without valid coordinates were skipped\.$/);
+  assert.match(status, /^Showing 4,99\d of 12,000 White shark records from the last 12 months, an arbitrary subset\. \d+ without valid coordinates were skipped\.$/);
   assert.equal(log.requests.length, 1);
   const p = log.requests[0].searchParams;
   assert.equal(p.get('scientificname'), 'Carcharodon carcharias');
@@ -218,7 +221,12 @@ test('default view plots a capped subset with skipped bad coordinates', async (b
     for (const a of assets) assert.match(a, /\?v=\d+\.\d+\.\d+-[0-9a-f]{7}$/, a);
   }
   else assert.equal(version, 'dev build');
-  assert.match(page.url(), /#species=Carcharodon\+carcharias&view=points&limit=5000$/);
+  assert.match(page.url(), /#species=Carcharodon\+carcharias&period=12m&view=points&limit=5000$/);
+  // The default time range is the last 12 months, ending today.
+  assert.equal(p.get('startdate'), '2025-10-03');
+  assert.equal(p.get('enddate'), '2026-10-03');
+  assert.equal(await page.inputValue('#period'), '12m');
+  assert.equal(await page.locator('#custom-years').isVisible(), false);
   assert.deepEqual(log.errors, []);
   await page.screenshot({ path: join(SHOTS, 'desktop-points.png') });
   await ctx.close();
@@ -310,6 +318,41 @@ test('basemap: OpenStreetMap without a key, CARTO with one', async (b, base) => 
   }
 });
 
+test('time range presets set the dates; custom years wait for Update map', async (b, base) => {
+  const { page, log, ctx } = await newPage(b, base, { now: NOW });
+  const settle = (fragment) => page.waitForFunction(
+    (f) => location.hash.includes(f) && !window.sharkMap.state.loading, fragment,
+  );
+  const last = () => log.requests.at(-1).searchParams;
+
+  await page.selectOption('#period', '5y');
+  await settle('period=5y');
+  assert.equal(last().get('startdate'), '2021-10-03');
+  assert.equal(last().get('enddate'), '2026-10-03');
+  assert.match(await text(page, '#status'), / from the last 5 years/);
+
+  await page.selectOption('#period', 'all');
+  await settle('period=all');
+  assert.equal(last().get('startdate'), null);
+  assert.equal(last().get('enddate'), null);
+  assert.doesNotMatch(await text(page, '#status'), / from /);
+
+  const before = log.requests.length;
+  await page.selectOption('#period', 'custom');
+  assert.equal(await page.locator('#custom-years').isVisible(), true);
+  await page.waitForTimeout(150);
+  assert.equal(log.requests.length, before, 'choosing custom should not load until Update map');
+  await page.fill('#from', '2015');
+  await page.fill('#to', '2018');
+  await page.click('#load');
+  await settle('period=custom');
+  assert.equal(last().get('startdate'), '2015-01-01');
+  assert.equal(last().get('enddate'), '2018-12-31');
+  assert.match(page.url(), /period=custom&from=2015&to=2018/);
+  assert.match(await text(page, '#status'), / from 2015 to 2018/);
+  await ctx.close();
+});
+
 test('paging follows the after cursor up to the limit', async (b, base) => {
   const { page, log, ctx } = await newPage(b, base, { hash: 'species=Carcharodon+carcharias&limit=10000' });
   assert.equal(log.requests.length, 2);
@@ -322,25 +365,33 @@ test('paging follows the after cursor up to the limit', async (b, base) => {
 test('small species loads fully without a subset note', async (b, base) => {
   const { page, log, ctx } = await newPage(b, base, { hash: 'species=Galeocerdo+cuvier&limit=5000' });
   assert.equal(log.requests.length, 1);
-  assert.match(await text(page, '#status'), /^Showing 2,99\d of 3,000 Tiger shark records\./);
+  assert.match(await text(page, '#status'), /^Showing 2,99\d of 3,000 Tiger shark records from the last 12 months\./);
   assert.doesNotMatch(await text(page, '#status'), /subset/);
   await ctx.close();
 });
 
 test('year range becomes start and end dates and is reordered when reversed', async (b, base) => {
-  const { log, ctx } = await newPage(b, base, { hash: 'species=Carcharodon+carcharias&from=2010&to=2000' });
+  // Links made before the presets existed carry only years, and still work as a custom range.
+  const { page, log, ctx } = await newPage(b, base, { hash: 'species=Carcharodon+carcharias&from=2010&to=2000' });
   const p = log.requests[0].searchParams;
   assert.equal(p.get('startdate'), '2000-01-01');
   assert.equal(p.get('enddate'), '2010-12-31');
+  assert.equal(await page.inputValue('#period'), 'custom');
+  assert.equal(await page.locator('#custom-years').isVisible(), true);
+  assert.match(page.url(), /period=custom&from=2000&to=2010/);
+  assert.match(await text(page, '#status'), / from 2000 to 2010/);
   await ctx.close();
 });
 
 test('hash values outside the allowlists fall back to defaults', async (b, base) => {
-  const { page, log, ctx } = await newPage(b, base, { hash: 'species=%3Cscript%3E&limit=999999&view=evil&from=abc' });
+  const { page, log, ctx } = await newPage(b, base, {
+    now: NOW, hash: 'species=%3Cscript%3E&limit=999999&view=evil&from=abc&period=evil',
+  });
   const p = log.requests[0].searchParams;
   assert.equal(p.get('scientificname'), 'Carcharodon carcharias');
   assert.equal(p.get('size'), '5000');
-  assert.equal(p.get('startdate'), null);
+  assert.equal(p.get('startdate'), '2025-10-03');
+  assert.equal(await page.inputValue('#period'), '12m');
   assert.equal((await state(page)).view, 'points');
   await ctx.close();
 });
@@ -394,7 +445,7 @@ test('density view requests the grid and summarises all records', async (b, base
   const s = await state(page);
   assert.equal(s.cells, 8 * 49);
   assert.ok(s.total > 0);
-  assert.match(await text(page, '#status'), /^Density of [\d,]+ White shark records in 392 cells of about 150 km\.$/);
+  assert.match(await text(page, '#status'), /^Density of [\d,]+ White shark records from the last 12 months, in 392 cells of about 150 km\.$/);
   assert.ok(await page.locator('#legend tr').count() >= 3);
   assert.equal(await page.locator('#limit-row').isVisible(), false);
   assert.equal(await page.locator('#download-row').isVisible(), false);
@@ -416,6 +467,11 @@ test('switching view from the form updates the map and the URL', async (b, base)
 
 test('no records gives a clear message', async (b, base) => {
   const { page, ctx } = await newPage(b, base, { hash: 'species=Rhincodon+typus' });
+  // A short rolling period explains that OBIS records arrive late.
+  assert.equal(await text(page, '#status'), 'No Whale shark records from the last 12 months. '
+    + 'OBIS records often arrive months or years after they are collected, so try a longer time range.');
+  await page.selectOption('#period', 'all');
+  await page.waitForFunction(() => /period=all/.test(location.hash) && !window.sharkMap.state.loading);
   assert.equal(await text(page, '#status'), 'No records match these filters.');
   assert.equal(await page.locator('#download-row').isVisible(), false);
   await ctx.close();
@@ -479,7 +535,7 @@ test('phone layout and dark theme render', async (b, base) => {
 // Live checks run against the real API from CI.
 const liveTests = [
   ['live: points load from OBIS', async (b, base) => {
-    const { page, log, ctx } = await newPage(b, base, { hash: 'species=Carcharodon+carcharias&limit=1000' });
+    const { page, log, ctx } = await newPage(b, base, { hash: 'species=Carcharodon+carcharias&period=all&limit=1000' });
     const s = await state(page);
     console.log('  status:', await text(page, '#status'));
     const first = await page.evaluate(() => window.sharkMap.state.records[0]);
@@ -495,7 +551,7 @@ const liveTests = [
     await ctx.close();
   }],
   ['live: density grid loads with counts', async (b, base) => {
-    const { page, ctx } = await newPage(b, base, { hash: 'species=Carcharodon+carcharias&view=density' });
+    const { page, ctx } = await newPage(b, base, { hash: 'species=Carcharodon+carcharias&period=all&view=density' });
     const s = await state(page);
     console.log('  status:', await text(page, '#status'));
     const props = await page.evaluate(() => window.sharkMap.state.grid && window.sharkMap.state.grid.features[0] && window.sharkMap.state.grid.features[0].properties);
@@ -504,6 +560,16 @@ const liveTests = [
     assert.ok(s.cells > 0, 'no grid cells');
     assert.ok(s.total > 0, 'grid cells carry no recognised count property');
     await page.screenshot({ path: join(SHOTS, 'live-density.png') });
+    await ctx.close();
+  }],
+  ['live: default last-12-months view loads', async (b, base) => {
+    // Recent records may be few or none, because OBIS data often arrive late. This checks the
+    // request succeeds and logs how much the default view shows.
+    const { page, ctx } = await newPage(b, base);
+    const s = await state(page);
+    console.log('  status:', await text(page, '#status'));
+    assert.equal(s.error, null, s.error);
+    await page.screenshot({ path: join(SHOTS, 'live-default.png') });
     await ctx.close();
   }],
 ];

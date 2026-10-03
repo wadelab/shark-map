@@ -13,6 +13,14 @@
   const LIMITS = [1000, 5000, 10000, 20000];
   const VIEWS = ['points', 'density'];
   const MIN_YEAR = 1700;
+  // Time-range presets. Rolling periods end today; 'custom' uses the year boxes.
+  const PERIODS = {
+    '12m': { label: 'the last 12 months', years: 1 },
+    '5y': { label: 'the last 5 years', years: 5 },
+    all: { label: null, years: null },
+    custom: { label: null, years: null },
+  };
+  const DEFAULT_PERIOD = '12m';
   const MAX_YEAR = new Date().getFullYear() + 1;
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -92,6 +100,7 @@
   const $ = (id) => document.getElementById(id);
   const ui = {
     form: $('controls'), species: $('species'), from: $('from'), to: $('to'), limit: $('limit'),
+    period: $('period'), customYears: $('custom-years'),
     limitRow: $('limit-row'), load: $('load'), status: $('status'), error: $('error'),
     legend: $('legend'), downloadRow: $('download-row'), download: $('download'),
     version: $('version'), panel: $('panel'), toggle: $('panel-toggle'),
@@ -281,6 +290,7 @@
   function readQuery(source) {
     const q = {
       species: source.get('species'),
+      period: source.get('period'),
       from: parseYear(source.get('from')),
       to: parseYear(source.get('to')),
       view: source.get('view'),
@@ -289,8 +299,53 @@
     if (!SPECIES.some((s) => s.name === q.species)) q.species = DEFAULT_SPECIES;
     if (!VIEWS.includes(q.view)) q.view = 'points';
     if (!LIMITS.includes(q.limit)) q.limit = 5000;
+    // Links made before the presets existed carry only years, so treat those as a custom range.
+    if (!Object.hasOwn(PERIODS, q.period)) q.period = q.from !== null || q.to !== null ? 'custom' : DEFAULT_PERIOD;
+    if (q.period !== 'custom') {
+      q.from = null;
+      q.to = null;
+    }
     if (q.from !== null && q.to !== null && q.from > q.to) [q.from, q.to] = [q.to, q.from];
     return q;
+  }
+
+  const isoDate = (d) => d.toISOString().slice(0, 10);
+
+  // Start and end dates (YYYY-MM-DD) for the query, or null for an open end.
+  function dateRange(q) {
+    const preset = PERIODS[q.period];
+    if (preset.years) {
+      const now = new Date();
+      const start = new Date(Date.UTC(now.getUTCFullYear() - preset.years, now.getUTCMonth(), now.getUTCDate()));
+      return { start: isoDate(start), end: isoDate(now) };
+    }
+    if (q.period === 'custom') {
+      return {
+        start: q.from !== null ? `${q.from}-01-01` : null,
+        end: q.to !== null ? `${q.to}-12-31` : null,
+      };
+    }
+    return { start: null, end: null };
+  }
+
+  // Words for the status line, such as "from the last 12 months", or '' for all years.
+  function periodPhrase(q) {
+    const preset = PERIODS[q.period];
+    if (preset.label) return ` from ${preset.label}`;
+    if (q.period === 'custom') {
+      if (q.from !== null && q.to !== null) return q.from === q.to ? ` from ${q.from}` : ` from ${q.from} to ${q.to}`;
+      if (q.from !== null) return ` from ${q.from} onwards`;
+      if (q.to !== null) return ` up to ${q.to}`;
+    }
+    return '';
+  }
+
+  function noRecordsMessage(q) {
+    if (PERIODS[q.period].years) {
+      return `No ${speciesLabel(q.species)} records${periodPhrase(q)}. OBIS records often arrive months `
+        + 'or years after they are collected, so try a longer time range.';
+    }
+    return 'No records match these filters.';
   }
 
   function queryFromHash() {
@@ -303,6 +358,8 @@
 
   function applyQueryToForm(q) {
     ui.species.value = q.species;
+    ui.period.value = q.period;
+    ui.customYears.hidden = q.period !== 'custom';
     ui.from.value = q.from ?? '';
     ui.to.value = q.to ?? '';
     ui.limit.value = String(q.limit);
@@ -313,6 +370,7 @@
   function writeHash(q) {
     const p = new URLSearchParams();
     p.set('species', q.species);
+    p.set('period', q.period);
     if (q.from !== null) p.set('from', String(q.from));
     if (q.to !== null) p.set('to', String(q.to));
     p.set('view', q.view);
@@ -323,8 +381,9 @@
   function apiParams(q) {
     const p = new URLSearchParams();
     p.set('scientificname', q.species);
-    if (q.from !== null) p.set('startdate', `${q.from}-01-01`);
-    if (q.to !== null) p.set('enddate', `${q.to}-12-31`);
+    const { start, end } = dateRange(q);
+    if (start) p.set('startdate', start);
+    if (end) p.set('enddate', end);
     return p;
   }
 
@@ -553,9 +612,9 @@
     }
     let msg;
     if (!state.total) {
-      msg = 'No records match these filters.';
+      msg = noRecordsMessage(q);
     } else {
-      msg = `Showing ${nf.format(state.plotted)} of ${nf.format(state.total)} ${speciesLabel(q.species)} records`;
+      msg = `Showing ${nf.format(state.plotted)} of ${nf.format(state.total)} ${speciesLabel(q.species)} records${periodPhrase(q)}`;
       msg += state.plotted + state.skipped < state.total ? ', an arbitrary subset.' : '.';
       if (state.skipped) msg += ` ${nf.format(state.skipped)} without valid coordinates were skipped.`;
     }
@@ -570,8 +629,9 @@
     state.total = features.reduce((sum, f) => sum + cellCount(f.properties), 0);
     renderGrid(state.grid);
     setStatus(state.cells
-      ? `Density of ${nf.format(state.total)} ${speciesLabel(q.species)} records in ${nf.format(state.cells)} cells of about 150 km.`
-      : 'No records match these filters.');
+      ? `Density of ${nf.format(state.total)} ${speciesLabel(q.species)} records${periodPhrase(q)}, `
+        + `in ${nf.format(state.cells)} cells of about 150 km.`
+      : noRecordsMessage(q));
   }
 
   let controller = null;
@@ -629,6 +689,13 @@
     update();
   });
   ui.species.addEventListener('change', () => ui.form.requestSubmit());
+  // Presets load straight away. Custom shows the year boxes and waits for "Update map".
+  ui.period.addEventListener('change', () => {
+    const custom = ui.period.value === 'custom';
+    ui.customYears.hidden = !custom;
+    if (custom) ui.from.focus();
+    else ui.form.requestSubmit();
+  });
   ui.form.querySelectorAll('input[name="view"]').forEach((r) => r.addEventListener('change', () => ui.form.requestSubmit()));
 
   function setCollapsed(collapsed) {

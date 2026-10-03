@@ -33,8 +33,16 @@
         <label for="species">Species</label>
         <select id="species" name="species"></select>
 
-        <fieldset class="years">
-          <legend>Years</legend>
+        <label for="period">Time range</label>
+        <select id="period" name="period">
+          <option value="12m" selected>Last 12 months</option>
+          <option value="5y">Last 5 years</option>
+          <option value="all">All years</option>
+          <option value="custom">Custom years</option>
+        </select>
+
+        <fieldset class="years" id="custom-years" hidden>
+          <legend class="visually-hidden">Custom years</legend>
           <label for="from" class="visually-hidden">From year</label>
           <input id="from" name="from" type="number" inputmode="numeric" min="1700" placeholder="Any">
           <span aria-hidden="true">to</span>
@@ -70,7 +78,8 @@
 
       <details class="about collapsible">
         <summary>About these data</summary>
-        <p>Each dot is one occurrence record in OBIS: a tag or receiver detection, a sighting, a catch, or a museum specimen. Most are historical, not live. Positions of tagged sharks are often delayed or coarsened by the researchers who hold them.</p>
+        <p>Each dot is one occurrence record in OBIS: a tag or receiver detection, a sighting, a catch, or a museum specimen. Positions of tagged sharks are often delayed or coarsened by the researchers who hold them.</p>
+        <p>The map starts with the last 12 months. Records often reach OBIS months or years after they are collected, so recent periods can look sparse. Choose a longer time range to see more.</p>
         <p>When a species has more records than the plotting limit, the dots are an arbitrary subset. The density view always counts every matching record.</p>
         <p>Each record keeps the licence of its source dataset. Follow the dataset link in a record's popup for citation details.</p>
         <p>Map built with <a href="https://leafletjs.com" rel="noopener">Leaflet</a>. Basemap &copy; <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap</a> contributors.</p>
