@@ -9,11 +9,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Names of the repository secrets this workflow can see (names only, never values)
-        env:
-          ALL_SECRETS: ${{ toJSON(secrets) }}
-        run: |
-          echo "$ALL_SECRETS" | jq -r 'keys[] | select(. != "github_token")' | sed 's/^/  secret name = /'
       - run: python3 probe/movebank_auth.py
         env:
           MOVEBANK_USERNAME: ${{ secrets.MOVEBANK_USERNAME }}
