@@ -1,0 +1,13 @@
+{
+  "name": "shark-map",
+  "private": true,
+  "description": "Static world map of shark occurrence records from the OBIS API.",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/smoke.mjs",
+    "test:live": "LIVE=1 node tests/smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

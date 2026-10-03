@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="app-version" content="__APP_VERSION__">
+  <meta name="build-date" content="__BUILD_DATE__">
+  <meta name="description" content="Recorded shark occurrences around the world, drawn live from the Ocean Biodiversity Information System (OBIS).">
+  <title>Shark Map</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M3 22c6-1 10-4 13-12 2 5 6 9 13 12-9 2-17 2-26 0z' fill='%232a78d6'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="map" role="region" aria-label="World map of shark records"></div>
+
+  <aside id="panel" aria-label="Map controls">
+    <header class="panel-head">
+      <h1>Shark Map</h1>
+      <button id="panel-toggle" type="button" aria-expanded="true" aria-controls="controls">Hide filters</button>
+    </header>
+
+    <div id="panel-body">
+      <p class="lede collapsible">Where sharks have been recorded, from tags, receivers, surveys and museum collections. Records come live from <a href="https://obis.org" rel="noopener">OBIS</a>.</p>
+
+      <form id="controls" class="collapsible" autocomplete="off">
+        <label for="species">Species</label>
+        <select id="species" name="species"></select>
+
+        <fieldset class="years">
+          <legend>Years</legend>
+          <label for="from" class="visually-hidden">From year</label>
+          <input id="from" name="from" type="number" inputmode="numeric" min="1700" placeholder="Any">
+          <span aria-hidden="true">to</span>
+          <label for="to" class="visually-hidden">To year</label>
+          <input id="to" name="to" type="number" inputmode="numeric" min="1700" placeholder="Any">
+        </fieldset>
+
+        <fieldset class="view">
+          <legend>Show</legend>
+          <label><input type="radio" name="view" value="points" checked> Individual records</label>
+          <label><input type="radio" name="view" value="density"> Density of all records</label>
+        </fieldset>
+
+        <div id="limit-row">
+          <label for="limit">Records to plot</label>
+          <select id="limit" name="limit">
+            <option value="1000">1,000</option>
+            <option value="5000" selected>5,000</option>
+            <option value="10000">10,000</option>
+            <option value="20000">20,000</option>
+          </select>
+        </div>
+
+        <button id="load" type="submit">Update map</button>
+      </form>
+
+      <p id="status" role="status" aria-live="polite">Loading…</p>
+      <div id="error" role="alert" hidden></div>
+
+      <div id="legend" aria-label="Legend"></div>
+
+      <p id="download-row" class="collapsible" hidden><a id="download" href="#" download="shark-records.csv">Download plotted records (CSV)</a></p>
+
+      <details class="about collapsible">
+        <summary>About these data</summary>
+        <p>Each dot is one occurrence record in OBIS: a tag or receiver detection, a sighting, a catch, or a museum specimen. Most are historical, not live. Positions of tagged sharks are often delayed or coarsened by the researchers who hold them.</p>
+        <p>When a species has more records than the plotting limit, the dots are an arbitrary subset. The density view always counts every matching record.</p>
+        <p>Each record keeps the licence of its source dataset. Follow the dataset link in a record's popup for citation details.</p>
+      </details>
+    </div>
+
+    <footer class="panel-foot">
+      <span id="version" title="Build version">dev</span>
+      <a href="https://github.com/wadelab/shark-map" rel="noopener">Source</a>
+    </footer>
+  </aside>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

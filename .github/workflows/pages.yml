@@ -1,0 +1,98 @@
+name: Test and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Browser tests (mocked OBIS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Build the site with the version stamp
+        run: scripts/build.sh
+      - name: Test the built site
+        run: SITE_DIR=_site npm test
+      - name: Keep screenshots
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: screenshots-mocked
+          path: test-results/
+          if-no-files-found: ignore
+
+  live-api:
+    # Checks the real OBIS API from a browser origin. It does not block deployment,
+    # so an OBIS outage cannot stop a release, but a failure here means the live site is broken.
+    name: Live OBIS API check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: CORS header and response shape
+        run: |
+          set -euo pipefail
+          url='https://api.obis.org/v3/occurrence?scientificname=Carcharodon%20carcharias&size=2'
+          curl -sS --fail -D headers.txt -o body.json -H 'Origin: https://wadelab.github.io' "$url"
+          echo "CORS header:"; grep -i '^access-control-allow-origin' headers.txt
+          jq '{total, first_record_keys: (.results[0] | keys)}' body.json
+          curl -sS --fail 'https://api.obis.org/v3/occurrence/grid/3?scientificname=Carcharodon%20carcharias' \
+            | jq '{cells: (.features | length), first_cell: .features[0]}'
+      - name: Live browser test
+        run: npm run test:live
+      - name: Keep screenshots
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: screenshots-live
+          path: test-results/
+          if-no-files-found: ignore
+
+  build:
+    name: Build Pages artifact
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build the site with the version stamp
+        run: scripts/build.sh | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
