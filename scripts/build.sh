@@ -9,15 +9,19 @@ sha="$(printf '%s' "$sha" | tr -cd '0-9a-f' | cut -c1-7)"
 release="$(tr -cd '0-9.' < VERSION)"
 version="v${release}+${sha:-unknown}"
 built="$(date -u +%Y-%m-%dT%H:%MZ)"
+# Optional CARTO basemap key. It ends up in the public page, so it is not a secret: restrict it
+# to the site's domain in CARTO's dashboard. Only letters, digits, '-' and '_' are kept.
+carto_key="$(printf '%s' "${CARTO_BASEMAP_KEY:-}" | tr -cd 'A-Za-z0-9_-')"
 
 rm -rf _site
 mkdir -p _site
 cp -r index.html app.js style.css maple-leaf.svg vendor _site/
-sed -i.bak -e "s|__APP_VERSION__|${version}|" -e "s|__BUILD_DATE__|${built}|" _site/index.html
+sed -i.bak -e "s|__APP_VERSION__|${version}|" -e "s|__BUILD_DATE__|${built}|" \
+  -e "s|__CARTO_KEY__|${carto_key}|" _site/index.html
 rm _site/index.html.bak
 
-if grep -q '__APP_VERSION__\|__BUILD_DATE__' _site/index.html; then
+if grep -q '__APP_VERSION__\|__BUILD_DATE__\|__CARTO_KEY__' _site/index.html; then
   echo "version placeholders were not replaced" >&2
   exit 1
 fi
-echo "Built ${version} at ${built}"
+echo "Built ${version} at ${built}, basemap: $([ -n "$carto_key" ] && echo CARTO || echo OpenStreetMap)"

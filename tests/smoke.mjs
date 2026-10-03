@@ -130,17 +130,35 @@ const TILE_DARK = png(0x26, 0x26, 0x26);
 async function newPage(browser, base, opts = {}) {
   const ctx = await browser.newContext({ viewport: opts.viewport || { width: 1280, height: 800 }, colorScheme: opts.colorScheme || 'light' });
   const page = await ctx.newPage();
-  const log = { requests: [], errors: [] };
+  const log = { requests: [], errors: [], tiles: [] };
   page.on('pageerror', (e) => log.errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error' && !/tile|cartocdn|favicon/i.test(m.text())) log.errors.push(m.text()); });
   if (!LIVE) {
-    await ctx.route(/basemaps\.cartocdn\.com/, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: opts.colorScheme === 'dark' ? TILE_DARK : TILE }));
+    await ctx.route(/basemaps\.cartocdn\.com|tile\.openstreetmap\.org/, (route) => {
+      log.tiles.push(route.request().url());
+      // OpenStreetMap has only a light style; CARTO serves dark tiles under dark_all.
+      const dark = route.request().url().includes('/dark_all/');
+      return route.fulfill({ status: 200, contentType: 'image/png', body: dark ? TILE_DARK : TILE });
+    });
     await ctx.route(/api\.obis\.org/, async (route) => {
       const url = new URL(route.request().url());
       log.requests.push(url);
       if (opts.fail) { await route.fulfill({ status: 500, body: 'boom' }); return; }
       const body = url.pathname.includes('/occurrence/grid/') ? mockGrid(url) : mockOccurrence(url);
       await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(body) });
+    });
+  }
+  if (opts.cartoKey !== undefined) {
+    // Rewrite the page's basemap key, to test both basemap paths whatever the build holds.
+    await ctx.route(`${base}/`, async (route) => {
+      const res = await route.fetch();
+      const body = (await res.text()).replace(/(<meta name="carto-key" content=")[^"]*(")/, `$1${opts.cartoKey}$2`);
+      await route.fulfill({ response: res, body });
+    });
+  }
+  if (LIVE) {
+    page.on('response', (res) => {
+      if (/basemaps\.cartocdn\.com|tile\.openstreetmap\.org/.test(res.url())) log.tiles.push(`${res.status()} ${new URL(res.url()).host}`);
     });
   }
   await page.goto(`${base}/${opts.hash ? `#${opts.hash}` : ''}`);
@@ -248,6 +266,40 @@ test('moves to the data only when none is in view, and the leaf button returns h
   assert.equal(kept.zoom, 6);
   assert.ok(Math.abs(kept.x - back.x) < 1 && Math.abs(kept.y - back.y) < 1, 'view should not move');
   await ctx.close();
+});
+
+test('basemap: OpenStreetMap without a key, CARTO with one', async (b, base) => {
+  const attribution = (page) => text(page, '.leaflet-control-attribution');
+  const hasOsmClass = (page) => page.evaluate(() => document.getElementById('map').classList.contains('osm-tiles'));
+
+  const osm = await newPage(b, base, { cartoKey: '' });
+  assert.equal(await osm.page.evaluate(() => window.sharkMap.basemap()), 'osm');
+  assert.ok(osm.log.tiles.length > 0 && osm.log.tiles.every((u) => u.startsWith('https://tile.openstreetmap.org/')), osm.log.tiles[0]);
+  assert.match(await attribution(osm.page), /OpenStreetMap contributors/);
+  assert.doesNotMatch(await attribution(osm.page), /CARTO/);
+  assert.equal(await hasOsmClass(osm.page), true);
+  await osm.ctx.close();
+
+  const carto = await newPage(b, base, { cartoKey: 'test_key-1234' });
+  assert.equal(await carto.page.evaluate(() => window.sharkMap.basemap()), 'carto');
+  assert.ok(carto.log.tiles.length > 0, 'no tiles requested');
+  for (const u of carto.log.tiles) {
+    assert.match(u, /^https:\/\/[abcd]\.basemaps\.cartocdn\.com\/light_all\/\d+\/\d+\/\d+\.png\?key=test_key-1234$/);
+  }
+  assert.match(await attribution(carto.page), /CARTO/);
+  assert.equal(await hasOsmClass(carto.page), false);
+  await carto.ctx.close();
+
+  const darkCarto = await newPage(b, base, { cartoKey: 'test_key-1234', colorScheme: 'dark' });
+  assert.ok(darkCarto.log.tiles.every((u) => u.includes('/dark_all/')), darkCarto.log.tiles[0]);
+  await darkCarto.ctx.close();
+
+  // Anything that is not a plausible key falls back to OpenStreetMap.
+  for (const bad of ['short', 'has space key', '__CARTO_KEY__']) {
+    const p = await newPage(b, base, { cartoKey: bad });
+    assert.equal(await p.page.evaluate(() => window.sharkMap.basemap()), 'osm', bad);
+    await p.ctx.close();
+  }
 });
 
 test('paging follows the after cursor up to the limit', async (b, base) => {
@@ -412,6 +464,9 @@ const liveTests = [
     console.log('  status:', await text(page, '#status'));
     const first = await page.evaluate(() => window.sharkMap.state.records[0]);
     console.log('  first record keys:', Object.keys(first || {}).join(','));
+    const basemap = await page.evaluate(() => window.sharkMap.basemap());
+    const tally = log.tiles.reduce((acc, t) => { acc[t] = (acc[t] || 0) + 1; return acc; }, {});
+    console.log(`  basemap: ${basemap}; tile responses: ${JSON.stringify(tally)}`);
     assert.equal(s.error, null, s.error);
     assert.ok(s.plotted > 0, 'no records plotted');
     assert.ok(s.total >= s.plotted);

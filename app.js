@@ -59,12 +59,35 @@
   const DENSITY_BREAKS = [1, 10, 100, 1000, 10000, 100000];
   const DENSITY_RAMP = ['#b7d3f6', '#86b6ef', '#5598e7', '#2a78d6', '#1c5cab', '#104281'];
 
-  const TILES = {
-    light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-    dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-  };
-  const ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors '
-    + '&copy; <a href="https://carto.com/attributions">CARTO</a> | Records: <a href="https://obis.org">OBIS</a>';
+  // Basemap. CARTO tiles need an API key since late August 2026; without one every tile is
+  // watermarked. The build stamps an optional key into the page. With no key the map uses the
+  // OpenStreetMap tile servers, which need no key but are only for light use like this site.
+  const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+  const OBIS_ATTRIBUTION = 'Records: <a href="https://obis.org">OBIS</a>';
+  const CARTO_KEY = (() => {
+    const meta = document.querySelector('meta[name="carto-key"]');
+    const value = meta ? meta.content : '';
+    // The unbuilt page still holds the __CARTO_KEY__ placeholder, which is not a key.
+    return /^[A-Za-z0-9_-]{8,200}$/.test(value) && !value.startsWith('__') ? value : null;
+  })();
+  function basemap() {
+    if (CARTO_KEY) {
+      const style = theme() === 'dark' ? 'dark_all' : 'light_all';
+      return {
+        provider: 'carto',
+        url: `https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(CARTO_KEY)}`,
+        options: {
+          subdomains: 'abcd',
+          attribution: `${OSM_ATTRIBUTION} &copy; <a href="https://carto.com/attributions">CARTO</a> | ${OBIS_ATTRIBUTION}`,
+        },
+      };
+    }
+    return {
+      provider: 'osm',
+      url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      options: { attribution: `${OSM_ATTRIBUTION} | ${OBIS_ATTRIBUTION}` },
+    };
+  }
 
   const $ = (id) => document.getElementById(id);
   const ui = {
@@ -98,9 +121,11 @@
   let tiles = null;
   function setTiles() {
     if (tiles) map.removeLayer(tiles);
-    tiles = L.tileLayer(TILES[theme()], {
-      subdomains: 'abcd', maxZoom: 19, attribution: ATTRIBUTION, crossOrigin: true,
-    }).addTo(map);
+    const base = basemap();
+    // OpenStreetMap has no dark style, so style.css tones its tiles down and inverts them in dark mode.
+    map.getContainer().classList.toggle('osm-tiles', base.provider === 'osm');
+    tiles = L.tileLayer(base.url, { maxZoom: 19, ...base.options }).addTo(map);
+    tiles.provider = base.provider;
   }
   setTiles();
 
@@ -619,7 +644,7 @@
   ui.version.textContent = version.startsWith('__') ? 'dev build' : version;
   if (!built.startsWith('__')) ui.version.title = `Built ${built}`;
 
-  window.sharkMap = { map, state, home: NOVA_SCOTIA };
+  window.sharkMap = { map, state, home: NOVA_SCOTIA, basemap: () => tiles.provider };
 
   const initial = queryFromHash();
   applyQueryToForm(initial);

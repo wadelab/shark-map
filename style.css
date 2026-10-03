@@ -300,6 +300,20 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+/* OpenStreetMap tiles are colourful and have no dark style: mute them so the data stands out,
+   and invert them in dark mode. CARTO tiles already come in light and dark styles. */
+.osm-tiles .leaflet-tile-pane { filter: saturate(0.55) brightness(1.04); }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .osm-tiles .leaflet-tile-pane {
+    filter: invert(1) hue-rotate(180deg) saturate(0.5) brightness(0.9) contrast(0.9);
+  }
+}
+
+:root[data-theme="dark"] .osm-tiles .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) saturate(0.5) brightness(0.9) contrast(0.9);
+}
+
 /* Leaflet chrome follows the theme. */
 .leaflet-container { font: inherit; background: var(--page); }
 .leaflet-container a { color: var(--link); }

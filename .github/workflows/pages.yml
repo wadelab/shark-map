@@ -27,6 +27,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Build the site with the version stamp
         run: scripts/build.sh
+        env:
+          CARTO_BASEMAP_KEY: ${{ vars.CARTO_BASEMAP_KEY }}
       - name: Test the built site
         run: SITE_DIR=_site npm test
       - name: Keep screenshots
@@ -78,6 +80,9 @@ jobs:
       - uses: actions/checkout@v6
       - name: Build the site with the version stamp
         run: scripts/build.sh | tee -a "$GITHUB_STEP_SUMMARY"
+        env:
+          # Optional. A CARTO basemap key is public once deployed, so it is a variable, not a secret.
+          CARTO_BASEMAP_KEY: ${{ vars.CARTO_BASEMAP_KEY }}
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:

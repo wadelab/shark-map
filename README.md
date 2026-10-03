@@ -73,6 +73,23 @@ One-time setup: in the repository settings, open **Pages** and set **Source** to
 
 To cut a release, bump `VERSION`. Every build also appends the short commit SHA.
 
+## Optional CARTO basemap
+
+Since late August 2026 CARTO's basemap tiles need an API key. Without one, every tile carries
+an "API KEY REQUIRED" watermark, so the site uses OpenStreetMap tiles unless a key is set.
+
+To switch to CARTO's light and dark styles:
+
+1. Request a free key at <https://carto.com/basemaps/apikey>. It is emailed to you, and no
+   account is needed.
+2. Restrict the key to `wadelab.github.io` in CARTO's dashboard. The key is visible in the
+   page source, so the restriction is what stops other sites using it.
+3. In this repository, open **Settings**, then **Secrets and variables**, then **Actions**, then
+   the **Variables** tab. Add a repository variable named `CARTO_BASEMAP_KEY` with the key.
+4. Re-run the workflow, or push a commit. The build log names the basemap it used.
+
+The build keeps only letters, digits, `-` and `_` from the key.
+
 ## Look and feel
 
 The styling is Canadian: a flag-red header with a white maple leaf, a bilingual English and
@@ -86,7 +103,8 @@ for colour-blind readers.
 - Maple leaf outline from the flag of Canada, taken from
   [flag-icons](https://github.com/lipis/flag-icons), MIT licence.
 - [Leaflet](https://leafletjs.com) 1.9.4, vendored in `vendor/leaflet/`, BSD-2-Clause.
-- Basemap tiles from [CARTO](https://carto.com/attributions), built on OpenStreetMap data.
-  CARTO's free basemaps have usage terms. Check them if traffic grows, or change the tile URL
-  in `app.js`.
+- Basemap tiles from [OpenStreetMap](https://www.openstreetmap.org/copyright) by default. They
+  need no key, but the OpenStreetMap Foundation's tile policy only allows light use and requires
+  the attribution to stay visible. The page mutes their colours, and inverts them in dark mode.
+- Optional [CARTO](https://carto.com/attributions) basemaps, see below.
 - Records from the [Ocean Biodiversity Information System](https://obis.org).
