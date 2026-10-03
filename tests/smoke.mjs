@@ -209,7 +209,14 @@ test('default view plots a capped subset with skipped bad coordinates', async (b
   const sum = await page.$$eval('#legend td.num', (tds) => tds.reduce((a, td) => a + Number(td.textContent.replace(/,/g, '')), 0));
   assert.equal(sum, s.plotted);
   const version = await text(page, '#version');
-  if (process.env.SITE_DIR) assert.match(version, /^v\d+\.\d+\.\d+\+[0-9a-f]{7}$/);
+  if (process.env.SITE_DIR) {
+    assert.match(version, /^v\d+\.\d+\.\d+\+[0-9a-f]{7}$/);
+    const assets = await page.evaluate(() => [
+      document.querySelector('script[src^="app.js"]').getAttribute('src'),
+      document.querySelector('link[href^="style.css"]').getAttribute('href'),
+    ]);
+    for (const a of assets) assert.match(a, /\?v=\d+\.\d+\.\d+-[0-9a-f]{7}$/, a);
+  }
   else assert.equal(version, 'dev build');
   assert.match(page.url(), /#species=Carcharodon\+carcharias&view=points&limit=5000$/);
   assert.deepEqual(log.errors, []);

@@ -16,12 +16,21 @@ carto_key="$(printf '%s' "${CARTO_BASEMAP_KEY:-}" | tr -cd 'A-Za-z0-9_-')"
 rm -rf _site
 mkdir -p _site
 cp -r index.html app.js style.css maple-leaf.svg vendor _site/
+# Version the page's own CSS and JS URLs, so a browser holding the previous release's files
+# fetches the new ones instead of mixing old assets with a new page.
+asset_tag="$(printf '%s' "${release}-${sha:-unknown}" | tr -cd '0-9a-z.-')"
 sed -i.bak -e "s|__APP_VERSION__|${version}|" -e "s|__BUILD_DATE__|${built}|" \
-  -e "s|__CARTO_KEY__|${carto_key}|" _site/index.html
+  -e "s|__CARTO_KEY__|${carto_key}|" \
+  -e "s|href=\"style.css\"|href=\"style.css?v=${asset_tag}\"|" \
+  -e "s|src=\"app.js\"|src=\"app.js?v=${asset_tag}\"|" _site/index.html
 rm _site/index.html.bak
 
 if grep -q '__APP_VERSION__\|__BUILD_DATE__\|__CARTO_KEY__' _site/index.html; then
   echo "version placeholders were not replaced" >&2
+  exit 1
+fi
+if ! grep -q "style.css?v=${asset_tag}" _site/index.html || ! grep -q "app.js?v=${asset_tag}" _site/index.html; then
+  echo "asset URLs were not versioned" >&2
   exit 1
 fi
 echo "Built ${version} at ${built}, basemap: $([ -n "$carto_key" ] && echo CARTO || echo OpenStreetMap)"
